@@ -1,0 +1,39 @@
+# Day mot tag dang v1.2.3 len GitHub -> tu dong dong goi va dang Release:
+#   portwatch-windows.zip  (PortDashboard.bat + PortDashboard.ps1 + LICENSE)
+#   portwatch.py           (ban Linux, mot file)
+#
+#   git tag v1.0.0
+#   git push origin v1.0.0
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kiểm tra bản Linux chạy được
+        run: python3 linux/portwatch.py --list
+
+      - name: Đóng gói
+        run: |
+          mkdir -p dist/portwatch-windows
+          cp windows/PortDashboard.bat windows/PortDashboard.ps1 LICENSE dist/portwatch-windows/
+          (cd dist && zip -r -9 portwatch-windows.zip portwatch-windows)
+          cp linux/portwatch.py dist/portwatch.py
+          ls -l dist
+
+      - name: Đăng Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/portwatch-windows.zip dist/portwatch.py \
+            --title "$GITHUB_REF_NAME" --generate-notes

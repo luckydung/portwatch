@@ -1,0 +1,5 @@
+# Script Linux phai giu xuong dong kieu LF, ke ca khi commit tu Windows
+*.py text eol=lf
+*.sh text eol=lf
+# File .bat giu nguyen xuong dong kieu Windows (CRLF), khong de git doi
+*.bat -text
