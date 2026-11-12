@@ -6,6 +6,7 @@ Chay:
     python3 portwatch.py          # xem port cua chinh ban
     sudo python3 portwatch.py     # xem va dung duoc ca port cua user khac / dich vu he thong
     python3 portwatch.py --list   # in bang ra man hinh roi thoat (dung trong script)
+    python3 portwatch.py --install  # them "Port Dashboard" vao menu ung dung de mo bang click
 
 Chi dung thu vien chuan cua Python 3.6+, khong can cai them gi.
 """
@@ -18,6 +19,8 @@ import locale
 import os
 import platform
 import pwd
+import shlex
+import shutil
 import signal
 import socket
 import struct
@@ -1069,6 +1072,8 @@ class App(object):
         keys = '↑↓ chọn  / tìm  Enter chi tiết  k dừng  r làm mới  a tự làm mới  h port hệ thống'
         if not self.is_root:
             keys += '  u sudo'
+            if not is_installed():
+                keys += '  m thêm vào menu'
         keys += '  q thoát'
         _put(scr, h - 1, 0, fit(keys, w - 1), curses.A_DIM)
 
@@ -1144,6 +1149,12 @@ class App(object):
         elif key in ('u', 'U') and not self.is_root:
             self.relaunch_sudo = True
             self.quit = True
+        elif key in ('m', 'M') and not self.is_root:
+            try:
+                msg = install()
+            except (OSError, RuntimeError) as e:
+                msg = 'Không thêm được vào menu: %s' % e
+            self.dialog = MessageDialog(APP_NAME, msg)
         elif n and key in ('\n', curses.KEY_ENTER):
             self.dialog = DetailDialog(self.view[self.sel])
         elif n and key in ('k', 'K', curses.KEY_DC):
@@ -1168,6 +1179,190 @@ class App(object):
             self.handle_key(key)
 
 
+# ---------- Mo bang click: tu mo cua so terminal, them vao menu ung dung ----------
+# Moi terminal nhan cau lenh theo mot kieu: 'argv' = cac doi so rieng sau co,
+# 'line' = ca cau lenh trong mot chuoi.
+TERMINALS = {
+    'x-terminal-emulator': (['-e'], 'argv'),
+    'ptyxis':         (['--new-window', '-x'], 'line'),
+    'kgx':            (['--'], 'argv'),
+    'gnome-terminal': (['--geometry=120x32', '--'], 'argv'),
+    'konsole':        (['-e'], 'argv'),
+    'xfce4-terminal': (['--geometry=120x32', '-x'], 'argv'),
+    'mate-terminal':  (['--geometry=120x32', '-x'], 'argv'),
+    'tilix':          (['-e'], 'line'),
+    'terminator':     (['-x'], 'argv'),
+    'qterminal':      (['-e'], 'line'),
+    'lxterminal':     (['-e'], 'line'),
+    'kitty':          ([], 'argv'),
+    'alacritty':      (['-e'], 'argv'),
+    'wezterm':        (['start', '--'], 'argv'),
+    'foot':           ([], 'argv'),
+    'xterm':          (['-geometry', '120x32', '-e'], 'argv'),
+    'urxvt':          (['-e'], 'argv'),
+}
+DESKTOP_TERMINALS = [
+    ('KDE', ['konsole']),
+    ('XFCE', ['xfce4-terminal']),
+    ('MATE', ['mate-terminal']),
+    ('LXQT', ['qterminal']),
+    ('LXDE', ['lxterminal']),
+    ('GNOME', ['ptyxis', 'kgx', 'gnome-terminal']),
+    ('UNITY', ['gnome-terminal']),
+    ('CINNAMON', ['gnome-terminal']),
+]
+
+
+def _terminal_order():
+    desk = (os.environ.get('XDG_CURRENT_DESKTOP') or os.environ.get('DESKTOP_SESSION') or '').upper()
+    order = []
+    for tag, names in DESKTOP_TERMINALS:   # uu tien terminal di kem moi truong desktop dang dung
+        if tag in desk:
+            order += names
+    order += ['x-terminal-emulator'] + list(TERMINALS)
+    seen = set()
+    return [t for t in order if not (t in seen or seen.add(t))]
+
+
+def has_display():
+    return bool(os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'))
+
+
+def gui_message(text):
+    """Bao loi bang hop thoai khi khong co terminal de in ra (vd. mo bang click)."""
+    for cmd in (['zenity', '--error', '--title', APP_NAME, '--text', text],
+                ['kdialog', '--title', APP_NAME, '--error', text],
+                ['notify-send', APP_NAME, text],
+                ['xmessage', '-center', text]):
+        if shutil.which(cmd[0]):
+            try:
+                subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+            except OSError:
+                pass
+
+
+def open_in_terminal(extra_args):
+    """Chay lai chinh file nay trong mot cua so terminal moi. Chi tro ve neu khong tim duoc terminal nao."""
+    cmd = [sys.executable, os.path.abspath(__file__)] + extra_args + ['--terminal']
+    for name in _terminal_order():
+        path = shutil.which(name)
+        if not path:
+            continue
+        opts, style = TERMINALS[name]
+        tail = cmd if style == 'argv' else [' '.join(shlex.quote(a) for a in cmd)]
+        try:
+            os.execv(path, [path] + opts + tail)
+        except OSError:
+            continue
+
+
+def pause_before_close():
+    try:
+        input('\nNhấn Enter để đóng cửa sổ...')
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+
+def _install_paths():
+    home = os.path.expanduser('~')
+    data = os.environ.get('XDG_DATA_HOME') or os.path.join(home, '.local', 'share')
+    return (os.path.join(home, '.local', 'bin', 'portwatch'),
+            os.path.join(data, 'applications', 'portwatch.desktop'))
+
+
+def _desktop_dir():
+    try:
+        out = subprocess.check_output(['xdg-user-dir', 'DESKTOP'], stderr=subprocess.DEVNULL)
+        path = out.decode('utf-8', 'replace').strip()
+    except (OSError, subprocess.CalledProcessError):
+        path = os.path.join(os.path.expanduser('~'), 'Desktop')
+    home = os.path.expanduser('~').rstrip('/')
+    if path and path.rstrip('/') != home and os.path.isdir(path):
+        return path
+    return None
+
+
+def is_installed():
+    return all(os.path.exists(p) for p in _install_paths())
+
+
+def _refresh_menu(app_dir):
+    if shutil.which('update-desktop-database'):
+        try:
+            subprocess.call(['update-desktop-database', app_dir], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            pass
+
+
+def install():
+    """Chep file vao ~/.local/bin/portwatch va tao bieu tuong trong menu ung dung (+ ngoai Desktop).
+    Tra ve thong bao ket qua."""
+    if os.geteuid() == 0:
+        raise RuntimeError('không chạy bằng sudo. Hãy chạy bằng người dùng bình thường để thêm vào menu của bạn.')
+    target, entry = _install_paths()
+    src = os.path.realpath(__file__)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    os.makedirs(os.path.dirname(entry), exist_ok=True)
+    if os.path.realpath(target) != src:
+        tmp = target + '.tmp'
+        shutil.copyfile(src, tmp)
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, target)
+
+    exec_path = '"%s"' % target if ' ' in target else target
+    text = '\n'.join([
+        '[Desktop Entry]',
+        'Type=Application',
+        'Name=%s' % APP_NAME,
+        'GenericName=Port đang mở',
+        'Comment=Xem port nào đang mở, ứng dụng nào chiếm port và dừng nó',
+        'Exec=%s' % exec_path,
+        'Icon=utilities-system-monitor',
+        # Terminal=false: portwatch tu mo terminal phu hop (va giu cua so lai neu co loi)
+        'Terminal=false',
+        'Categories=System;Network;Monitor;',
+        'Keywords=port;network;tcp;listen;kill;mạng;',
+        'StartupNotify=false',
+        '',
+    ])
+    with open(entry, 'w', encoding='utf-8') as f:
+        f.write(text)
+    os.chmod(entry, 0o755)
+    _refresh_menu(os.path.dirname(entry))
+
+    lines = ['Đã thêm "%s" vào menu ứng dụng.' % APP_NAME,
+             'Mở menu (hoặc bấm phím Super), gõ "Port" rồi click để chạy. Có thể ghim vào thanh tác vụ/dock.']
+    desk = _desktop_dir()
+    if desk:
+        shortcut = os.path.join(desk, 'portwatch.desktop')
+        shutil.copyfile(entry, shortcut)
+        os.chmod(shortcut, 0o755)
+        if shutil.which('gio'):   # GNOME: danh dau tin cay de double-click chay duoc
+            try:
+                subprocess.call(['gio', 'set', shortcut, 'metadata::trusted', 'true'],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError:
+                pass
+        lines.append('Đã tạo biểu tượng ngoài Desktop (lần đầu có thể phải chuột phải → "Allow Launching").')
+    lines.append('Lệnh "portwatch" cũng đã được cài vào %s.' % os.path.dirname(target))
+    return '\n'.join(lines)
+
+
+def uninstall():
+    target, entry = _install_paths()
+    removed = []
+    desk = _desktop_dir()
+    for p in [entry, target] + ([os.path.join(desk, 'portwatch.desktop')] if desk else []):
+        if os.path.exists(p):
+            os.remove(p)
+            removed.append(p)
+    _refresh_menu(os.path.dirname(entry))
+    if not removed:
+        return 'Chưa cài nên không có gì để gỡ.'
+    return 'Đã gỡ:\n' + '\n'.join('  ' + p for p in removed)
+
+
 # ---------- Che do --list ----------
 def print_list(show_system):
     all_rows = get_port_rows()
@@ -1189,16 +1384,32 @@ def main():
     ap = argparse.ArgumentParser(description='Xem các port đang mở trên máy và dừng ứng dụng đang chiếm port.')
     ap.add_argument('--list', action='store_true', help='in danh sách port ra màn hình rồi thoát')
     ap.add_argument('--system', action='store_true', help='(dùng với --list) hiện cả port hệ thống')
+    ap.add_argument('--install', action='store_true', help='thêm Port Dashboard vào menu ứng dụng và Desktop để mở bằng click')
+    ap.add_argument('--uninstall', action='store_true', help='gỡ những gì --install đã thêm')
+    ap.add_argument('--terminal', action='store_true', help=argparse.SUPPRESS)   # dang chay trong cua so tu mo
     args = ap.parse_args()
 
     if not sys.platform.startswith('linux') or not os.path.exists('/proc/net/tcp'):
         sys.exit('Port Dashboard bản này chỉ chạy trên Linux (cần /proc). Trên Windows hãy dùng windows/PortDashboard.bat.')
 
+    if args.install or args.uninstall:
+        try:
+            print(install() if args.install else uninstall())
+        except (OSError, RuntimeError) as e:
+            sys.exit('Không %s được: %s' % ('cài' if args.install else 'gỡ', e))
+        return
+
     if args.list:
         print_list(args.system)
         return
 
-    if not sys.stdout.isatty():
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        # Duoc mo bang click (menu, Desktop, trinh quan ly file): tu mo mot cua so terminal
+        if has_display() and not args.terminal:
+            open_in_terminal([])
+            gui_message('Không tìm thấy chương trình terminal nào để mở %s.\n'
+                        'Hãy cài một terminal (vd. gnome-terminal, konsole, xterm) rồi thử lại.' % APP_NAME)
+            sys.exit(1)
         sys.exit('Cần chạy trong terminal. Dùng --list để in danh sách ra màn hình.')
 
     locale.setlocale(locale.LC_ALL, '')
@@ -1215,13 +1426,34 @@ def main():
 
     app = holder.get('app')
     if app and app.relaunch_sudo:
-        cmd = ['sudo', sys.executable, os.path.abspath(__file__)]
+        cmd = ['sudo', sys.executable, os.path.abspath(__file__)] + (['--terminal'] if args.terminal else [])
         print('Đang chạy lại với sudo...')
         try:
-            os.execvp('sudo', cmd)
+            rc = subprocess.call(cmd)
         except OSError as e:
             sys.exit('Không chạy được sudo: %s' % e)
+        except KeyboardInterrupt:
+            rc = 130
+        if rc not in (0, 130):
+            sys.exit('sudo không chạy được (mã lỗi %d).' % rc)
 
 
 if __name__ == '__main__':
-    main()
+    # Trong cua so terminal tu mo: neu co loi thi giu cua so lai de con doc duoc thong bao
+    in_own_window = '--terminal' in sys.argv[1:]
+    try:
+        main()
+    except SystemExit as e:
+        if in_own_window and e.code not in (None, 0):
+            if isinstance(e.code, str):
+                print(e.code, file=sys.stderr)
+            pause_before_close()
+            sys.exit(1)
+        raise
+    except Exception:
+        if not in_own_window:
+            raise
+        import traceback
+        traceback.print_exc()
+        pause_before_close()
+        sys.exit(1)

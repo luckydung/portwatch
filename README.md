@@ -19,7 +19,7 @@ Không cần git, chỉ cần tải file của hệ điều hành bạn dùng:
 | Hệ điều hành | File tải về | Cách mở |
 |---|---|---|
 | Windows | [**portwatch-windows.zip**](https://github.com/luckydung/portwatch/releases/latest/download/portwatch-windows.zip) | Giải nén, double-click `PortDashboard.bat` |
-| Linux | [**portwatch.py**](https://github.com/luckydung/portwatch/releases/latest/download/portwatch.py) | `python3 portwatch.py` |
+| Linux | [**portwatch.py**](https://github.com/luckydung/portwatch/releases/latest/download/portwatch.py) | `python3 portwatch.py`; chạy `--install` một lần để [mở bằng click](#mở-bằng-click) |
 
 Link luôn trỏ tới phiên bản mới nhất. Các phiên bản cũ và ghi chú thay đổi nằm ở trang [Releases](https://github.com/luckydung/portwatch/releases).
 
@@ -79,13 +79,25 @@ curl -fsSLO https://github.com/luckydung/portwatch/releases/latest/download/port
 python3 portwatch.py
 ```
 
-Muốn gõ `portwatch` ở bất kỳ đâu thì chép vào thư mục lệnh của bạn:
+**Khi nào cần sudo:** không có sudo bạn vẫn thấy mọi port, nhưng chỉ biết tiến trình nào giữ port nếu tiến trình đó là của bạn; port của người dùng khác hiện "(cần sudo để xem)". Bấm `u` trong ứng dụng hoặc chạy `sudo python3 portwatch.py` để xem và dừng được tất cả.
+
+### Mở bằng click
+
+Chạy lệnh sau **một lần**:
 
 ```bash
-install -Dm755 portwatch.py ~/.local/bin/portwatch
+python3 portwatch.py --install
 ```
 
-**Khi nào cần sudo:** không có sudo bạn vẫn thấy mọi port, nhưng chỉ biết tiến trình nào giữ port nếu tiến trình đó là của bạn; port của người dùng khác hiện "(cần sudo để xem)". Bấm `u` trong ứng dụng hoặc chạy `sudo python3 portwatch.py` để xem và dừng được tất cả.
+Lệnh này thêm **Port Dashboard** vào menu ứng dụng, tạo biểu tượng ngoài Desktop và cài lệnh `portwatch`. Từ đó về sau:
+- Mở menu (hoặc bấm phím Super), gõ "Port" rồi click. Có thể ghim vào dock hay thanh tác vụ.
+- Hoặc double-click biểu tượng ngoài Desktop. Trên GNOME, lần đầu cần chuột phải → **Allow Launching**.
+
+Đang mở ứng dụng trong terminal thì bấm `m` cũng được. Gỡ bằng `portwatch --uninstall`.
+
+Khi được mở bằng click, ứng dụng tự mở cửa sổ terminal có sẵn trên máy (GNOME Terminal, Konsole, Xfce Terminal, xterm...). Nếu có lỗi, cửa sổ sẽ chờ bạn bấm Enter rồi mới đóng, để kịp đọc thông báo.
+
+**Không muốn gõ lệnh nào?** Trên KDE, Xfce, Cinnamon và MATE: chuột phải `portwatch.py` → **Properties** → **Permissions** → tick **Allow executing file as program**. Sau đó double-click file, chọn **Run**, rồi bấm `m` để thêm vào menu. Riêng Nautilus (trình quản lý file của GNOME) không chạy script bằng double-click, nên trên GNOME phải chạy lệnh `--install` ở trên.
 
 ### Phím tắt
 
@@ -101,6 +113,7 @@ install -Dm755 portwatch.py ~/.local/bin/portwatch
 | `i` | Thông tin máy (`c` để sao chép) |
 | `s` | Cài đặt |
 | `u` | Chạy lại với sudo |
+| `m` | Thêm vào menu ứng dụng để lần sau mở bằng click (chỉ hiện khi chưa thêm) |
 | `q` | Thoát |
 
 ### Cài đặt (Linux)
