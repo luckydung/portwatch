@@ -64,8 +64,11 @@ Bấm nút **Cài đặt** ở góc trên bên phải:
 | Hiện nút "Thông tin máy" | Ẩn/hiện nút mở hộp thoại thông tin máy | Bật |
 | Hiện port hệ thống của Windows | Hiện cả port của các dịch vụ Windows | Tắt |
 | Cửa sổ luôn nằm trên | Giữ cửa sổ nổi trên các cửa sổ khác | Tắt |
+| Tự mở khi đăng nhập Windows | Mở ứng dụng (thu nhỏ xuống thanh tác vụ) mỗi khi đăng nhập | Tắt |
 
 Cài đặt được lưu tại `%APPDATA%\PortDashboard\settings.json`. Xóa file này để quay về mặc định.
+
+Chế độ tự khởi động được lưu riêng trong registry của người dùng (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, mục `PortDashboard`), không cần quyền Admin. Có thể tắt ở đây hoặc trong **Task Manager → Startup apps**. Nếu di chuyển thư mục chứa ứng dụng, mở ứng dụng một lần từ vị trí mới để đường dẫn khởi động được cập nhật.
 
 ## Linux
 

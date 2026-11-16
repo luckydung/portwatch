@@ -1,6 +1,8 @@
 ﻿#Requires -Version 5.1
 # Port Dashboard - liet ke cac port dang mo tren may va cho phep dung ung dung chiem port.
 # Chay bang file PortDashboard.bat (double-click).
+# -Minimized: mo cua so thu nho xuong thanh tac vu (dung khi tu khoi dong cung Windows).
+param([switch]$Minimized)
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Data
 
@@ -89,6 +91,36 @@ function Save-Settings {
 }
 
 $script:settings = Read-Settings
+
+# ---------- Khoi dong cung Windows ----------
+# Luu o HKCU\...\Run (cua rieng nguoi dung, khong can quyen Admin). Registry la noi
+# luu trang thai duy nhat, nen tat bang Task Manager > Startup cung duoc nhan ra.
+$runKeyPath  = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$runValue    = 'PortDashboard'
+$startupCmd  = "powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File `"$PSCommandPath`" -Minimized"
+
+function Get-StartupCommand {
+    try { return [string](Get-ItemProperty -LiteralPath $runKeyPath -Name $runValue -ErrorAction Stop).$runValue }
+    catch { return $null }
+}
+
+function Set-Startup([bool]$enable) {
+    try {
+        if ($enable) {
+            if (-not (Test-Path -LiteralPath $runKeyPath)) { [void](New-Item -Path $runKeyPath -Force) }
+            Set-ItemProperty -LiteralPath $runKeyPath -Name $runValue -Value $startupCmd -ErrorAction Stop
+        } elseif ($null -ne (Get-StartupCommand)) {
+            Remove-ItemProperty -LiteralPath $runKeyPath -Name $runValue -ErrorAction Stop
+        }
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+# Neu thu muc da bi di chuyen, cap nhat lai duong dan trong lenh khoi dong.
+$cur = Get-StartupCommand
+if ($cur -and $cur -ne $startupCmd) { [void](Set-Startup $true) }
 
 # ---------- Thong tin may (chay o luong nen) ----------
 $infoInit = {
@@ -384,6 +416,13 @@ $settingsXaml = @'
         <CheckBox x:Name="chkSetInfo" Content="Hiện nút &quot;Thông tin máy&quot; (tên máy, IP, CPU, RAM...)"/>
         <CheckBox x:Name="chkSetSystem" Content="Hiện port hệ thống của Windows"/>
         <CheckBox x:Name="chkSetTop" Content="Cửa sổ luôn nằm trên các cửa sổ khác"/>
+      </StackPanel>
+    </Border>
+    <Border Background="White" BorderBrush="#D5DBE3" BorderThickness="1" CornerRadius="4" Padding="14,12,14,6" Margin="0,0,0,10">
+      <StackPanel>
+        <TextBlock Style="{StaticResource Head}" Text="Khởi động"/>
+        <CheckBox x:Name="chkSetStartup" Content="Tự mở khi đăng nhập Windows (thu nhỏ xuống thanh tác vụ)"
+                  ToolTip="Nếu di chuyển thư mục chứa ứng dụng, hãy mở ứng dụng một lần từ vị trí mới để cập nhật."/>
       </StackPanel>
     </Border>
     <DockPanel LastChildFill="False" Margin="0,4,0,0">
@@ -684,6 +723,8 @@ function Show-SettingsDialog {
     $cInfo   = $dlg.FindName('chkSetInfo')
     $cSystem = $dlg.FindName('chkSetSystem')
     $cTop    = $dlg.FindName('chkSetTop')
+    $cStart  = $dlg.FindName('chkSetStartup')
+    $cStart.IsChecked = $null -ne (Get-StartupCommand)
 
     $fill = {
         param($s)
@@ -697,7 +738,7 @@ function Show-SettingsDialog {
     & $fill $script:settings
 
     $cAuto.Add_Click({ $cboInt.IsEnabled = [bool]$cAuto.IsChecked })
-    $dlg.FindName('btnSetDefault').Add_Click({ & $fill $defaultSettings })
+    $dlg.FindName('btnSetDefault').Add_Click({ & $fill $defaultSettings; $cStart.IsChecked = $false })
 
     $dlg.FindName('btnSetSave').Add_Click({
         $sec = 0
@@ -720,6 +761,9 @@ function Show-SettingsDialog {
         Update-FromSettings
         if (-not $saved) {
             $txtStatus.Text = "Đã áp dụng cài đặt nhưng không lưu được vào $settingsPath"
+        }
+        if (-not (Set-Startup ([bool]$cStart.IsChecked))) {
+            [void][Windows.MessageBox]::Show($window, 'Không thay đổi được chế độ tự khởi động cùng Windows.', 'Cài đặt', 'OK', 'Warning')
         }
     }
 }
@@ -797,6 +841,7 @@ $btnAdmin.Add_Click({
 })
 
 Update-FromSettings
+if ($Minimized) { $window.WindowState = 'Minimized' }
 $window.Add_Loaded({ $txtStatus.Text = 'Đang đọc danh sách port...'; Update-Data })
 $window.Add_Closed({
     $timer.Stop(); $killTimer.Stop(); $pollTimer.Stop()
