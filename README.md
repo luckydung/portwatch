@@ -4,13 +4,15 @@
 
 Hữu ích khi gặp lỗi kiểu "port 8080 is already in use" mà không biết cái gì đang chiếm.
 
-Có hai phiên bản:
+Có ba phiên bản:
 
-| | Windows | Linux |
-|---|---|---|
-| Giao diện | Cửa sổ (WPF) | Trong terminal, như `htop`; dùng được qua SSH |
-| Thư mục | [`windows/`](windows) | [`linux/`](linux) |
-| Cần có | Windows 10/11, PowerShell 5.1 (có sẵn) | Python 3.6+ (thường có sẵn), chỉ dùng thư viện chuẩn |
+| | Windows | macOS | Linux |
+|---|---|---|---|
+| Giao diện | Cửa sổ (WPF) | Ứng dụng macOS (SwiftUI) | Trong terminal, như `htop`; dùng được qua SSH |
+| Thư mục | [`windows/`](windows) | [`macos/`](macos) | [`linux/`](linux) |
+| Cần có | Windows 10/11, PowerShell 5.1 (có sẵn) | macOS 14 trở lên, Mac Apple Silicon hoặc Intel | Python 3.6+ (thường có sẵn), chỉ dùng thư viện chuẩn |
+
+Bản Linux (`portwatch.py`) cũng chạy được trên macOS, nếu bạn thích dùng trong terminal.
 
 ## Tải về
 
@@ -19,6 +21,7 @@ Không cần git, chỉ cần tải file của hệ điều hành bạn dùng:
 | Hệ điều hành | File tải về | Cách mở |
 |---|---|---|
 | Windows | [**portwatch-windows.zip**](https://github.com/luckydung/portwatch/releases/latest/download/portwatch-windows.zip) | Giải nén, double-click `PortDashboard.bat` |
+| macOS | Chưa có file tải sẵn | [Build từ mã nguồn](#macos) bằng một lệnh, rồi double-click `Port Dashboard.app` |
 | Linux | [**portwatch.py**](https://github.com/luckydung/portwatch/releases/latest/download/portwatch.py) | `python3 portwatch.py`; chạy `--install` một lần để [mở bằng click](#mở-bằng-click) |
 
 Link luôn trỏ tới phiên bản mới nhất. Các phiên bản cũ và ghi chú thay đổi nằm ở trang [Releases](https://github.com/luckydung/portwatch/releases).
@@ -69,6 +72,62 @@ Bấm nút **Cài đặt** ở góc trên bên phải:
 Cài đặt được lưu tại `%APPDATA%\PortDashboard\settings.json`. Xóa file này để quay về mặc định.
 
 Chế độ tự khởi động được lưu riêng trong registry của người dùng (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, mục `PortDashboard`), không cần quyền Admin. Có thể tắt ở đây hoặc trong **Task Manager → Startup apps**. Nếu di chuyển thư mục chứa ứng dụng, mở ứng dụng một lần từ vị trí mới để đường dẫn khởi động được cập nhật.
+
+## macOS
+
+Bản macOS là một ứng dụng thật: double-click là mở, không cần Terminal hay Python.
+
+### Cài đặt
+
+Hiện chưa có file tải sẵn, nên cần build từ mã nguồn một lần. Máy cần có Xcode hoặc Command Line Tools (nếu chưa có, chạy `xcode-select --install`).
+
+```bash
+git clone https://github.com/luckydung/portwatch.git
+```
+
+```bash
+portwatch/macos/build.sh --install
+```
+
+Lệnh này biên dịch ứng dụng (chạy được trên cả Apple Silicon và Intel), vẽ icon và chép **Port Dashboard** vào thư mục **Applications**. Sau đó mở bằng Launchpad, Spotlight (`⌘ Space`, gõ "Port") hoặc kéo vào Dock. Bỏ `--install` nếu chỉ muốn build ra `macos/build/Port Dashboard.app` mà không chép đi đâu.
+
+### Sử dụng
+
+- **Chọn một dòng rồi bấm Dừng ứng dụng** (hoặc phím `Delete`) để giải phóng port. Ứng dụng gửi tín hiệu dừng lịch sự trước; nếu sau 2 giây chưa thoát sẽ hỏi có buộc dừng không.
+- **Double-click một dòng** để xem chi tiết: file chạy, thư mục, câu lệnh đầy đủ. Từ đây có thể mở `http://localhost:<port>` trong trình duyệt, hiện file trong Finder hoặc sao chép thông tin.
+- **Chuột phải một dòng** để mở trong trình duyệt, sao chép số port, PID hoặc câu lệnh.
+- Ô tìm kiếm ở thanh công cụ lọc theo số port, tên ứng dụng, PID hoặc đường dẫn. `⌘R` để làm mới ngay.
+
+**Khi nào cần mật khẩu Admin:** chỉ khi dừng ứng dụng do người dùng khác hoặc hệ thống chạy. macOS sẽ hiện hộp thoại hỏi mật khẩu; ứng dụng không bao giờ thấy mật khẩu của bạn.
+
+**Port 5000 và 7000 bị chiếm sẵn?** Đó là **AirPlay Receiver** của macOS, hay đụng với Flask hoặc các dev server. Dừng tiến trình không có tác dụng vì macOS tự mở lại; ứng dụng sẽ chỉ cách tắt trong **Cài đặt hệ thống → Chung → AirDrop & Handoff** và có nút mở thẳng trang đó. Port do `launchd` giữ (SSH, chia sẻ màn hình, chia sẻ file) cũng được hướng dẫn tắt ở **Cài đặt hệ thống → Chung → Chia sẻ**.
+
+### Cài đặt (macOS)
+
+Bấm nút bánh răng trên thanh công cụ hoặc `⌘,`:
+
+| Mục | Ý nghĩa | Mặc định |
+|---|---|---|
+| Tự động làm mới danh sách port | Bật/tắt việc tự đọc lại danh sách | Bật |
+| Làm mới mỗi ... giây | Chu kỳ làm mới, từ 1 đến 3600 giây | 5 |
+| Hiện nút "Thông tin máy" | Ẩn/hiện nút mở hộp thoại thông tin máy | Bật |
+| Hiện port hệ thống của macOS | Hiện cả port của dịch vụ hệ thống (tiến trình trong `/System`, `/usr/libexec`... hoặc chạy bằng tài khoản hệ thống) | Tắt |
+| Cửa sổ luôn nằm trên | Giữ cửa sổ nổi trên các cửa sổ khác | Tắt |
+| Tự mở khi đăng nhập macOS | Mở ứng dụng mỗi khi đăng nhập; tắt được ở **Cài đặt hệ thống → Chung → Mục đăng nhập** | Tắt |
+
+Cài đặt được lưu trong `~/Library/Preferences/io.github.luckydung.portwatch.plist`.
+
+**Hạn chế:** ứng dụng dùng `lsof` nên chỉ thấy port của tài khoản đang đăng nhập; port do root giữ (vd. 88 Kerberos, 5900 chia sẻ màn hình) có thể không hiện. Đó đều là port hệ thống, mặc định vẫn được ẩn.
+
+### Dùng trong terminal trên macOS
+
+`linux/portwatch.py` cũng chạy trên macOS (đọc port bằng `lsof`, `netstat`, `ps` thay cho `/proc`), có đủ tính năng và phím tắt như [bản Linux](#phím-tắt) trừ `--install` / phím `m`:
+
+```bash
+python3 portwatch/linux/portwatch.py
+```
+
+Nếu máy chưa có Python 3, macOS sẽ đề nghị cài Command Line Tools khi bạn chạy lệnh `python3` lần đầu.
 
 ## Linux
 
@@ -144,7 +203,7 @@ Thêm `--system` để hiện cả port hệ thống.
 
 ## Lưu ý
 
-- **Dừng ứng dụng sẽ làm mất dữ liệu chưa lưu** trong ứng dụng đó. Bản Windows buộc tắt ngay (tương đương End Task); bản Linux mặc định gửi SIGTERM trước.
+- **Dừng ứng dụng sẽ làm mất dữ liệu chưa lưu** trong ứng dụng đó. Bản Windows buộc tắt ngay (tương đương End Task); bản macOS và Linux mặc định gửi SIGTERM trước.
 - Dừng dịch vụ hệ thống có thể làm máy chạy không ổn định. Ứng dụng cảnh báo trước và không cho dừng các tiến trình lõi.
 - Chỉ liệt kê port TCP đang ở trạng thái lắng nghe; chưa hỗ trợ UDP.
 - Ứng dụng chỉ đọc thông tin trên máy cục bộ, không gửi dữ liệu đi đâu.

@@ -31,6 +31,7 @@ import time
 import unicodedata
 
 APP_NAME = 'Port Dashboard'
+IS_MAC = sys.platform == 'darwin'
 
 # ---------- Du lieu tham khao ----------
 KNOWN_PORTS = {
@@ -139,6 +140,12 @@ def _read(path, mode='r'):
 
 
 def proc_start_time(pid):
+    if IS_MAC:
+        return _run_cmd(['ps', '-o', 'lstart=', '-p', str(pid)]).strip() or None
+    return _proc_start_time_linux(pid)
+
+
+def _proc_start_time_linux(pid):
     """Thoi diem bat dau cua tien trinh (truong 22 trong /proc/<pid>/stat), dung de phat hien PID bi tai su dung."""
     stat = _read('/proc/%d/stat' % pid)
     if not stat:
@@ -165,7 +172,19 @@ def _is_loopback(ip):
     return ip.startswith('127.') or ip in LOOPBACK_V6 or ip.startswith('::ffff:127.')
 
 
+def _scope(addrs):
+    if '0.0.0.0' in addrs or '::' in addrs:
+        return 'Máy khác truy cập được'
+    if all(_is_loopback(a) for a in addrs):
+        return 'Chỉ máy này'
+    return ', '.join(addrs)
+
+
 def get_port_rows():
+    return _get_port_rows_mac() if IS_MAC else _get_port_rows_linux()
+
+
+def _get_port_rows_linux():
     socks = _listening_sockets()
     owners = _inode_owners(set(socks))
     is_root = os.geteuid() == 0
@@ -202,12 +221,7 @@ def get_port_rows():
             app += ' +%d' % (g['nproc'] - 1)
 
         addrs = sorted(g['addrs'])
-        if '0.0.0.0' in addrs or '::' in addrs:
-            scope = 'Máy khác truy cập được'
-        elif all(_is_loopback(a) for a in addrs):
-            scope = 'Chỉ máy này'
-        else:
-            scope = ', '.join(addrs)
+        scope = _scope(addrs)
 
         is_container = comm in CONTAINER_PROCS
         is_system = not is_container and (uid < 1000 or uid == 65534 or pid == 1)
@@ -225,6 +239,147 @@ def get_port_rows():
             'port': port, 'app': app, 'desc': desc, 'scope': scope, 'pid': pid,
             'user': user_name(uid), 'cmd': cmd, 'exe': exe, 'addrs': addrs,
             'system': is_system,
+        })
+    rows.sort(key=lambda r: (r['port'], r['pid'] or 0))
+    return rows
+
+
+# ---------- macOS: doc danh sach port bang lsof / netstat / ps ----------
+MAC_SYSTEM_DIRS = ('/System/', '/usr/libexec/', '/usr/sbin/', '/sbin/', '/Library/Apple/')
+MAC_KNOWN_APPS = {'ControlCenter': 'AirPlay Receiver (macOS)', 'rapportd': 'Kết nối thiết bị Apple (Handoff)'}
+
+
+def _run_cmd(args, timeout=5):
+    try:
+        r = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout)
+        return r.stdout.decode('utf-8', 'replace')
+    except (OSError, subprocess.SubprocessError):
+        return ''
+
+
+def _mac_listening():
+    """[(pid, comm, uid, ip, port)] cho socket TCP LISTEN. Khong co sudo, lsof chi thay tien trinh cua minh."""
+    out = _run_cmd(['lsof', '+c', '0', '-nP', '-iTCP', '-sTCP:LISTEN', '-F', 'pcutn'])
+    res = []
+    pid, comm, uid, ftype = None, '', None, ''
+    for line in out.splitlines():
+        if not line:
+            continue
+        tag, val = line[0], line[1:]
+        if tag == 'p':
+            pid, comm, uid = int(val), '', None
+        elif tag == 'c':
+            comm = val
+        elif tag == 'u':
+            uid = int(val)
+        elif tag == 'f':
+            ftype = ''
+        elif tag == 't':
+            ftype = val
+        elif tag == 'n' and pid is not None:
+            host, _, port = val.rpartition(':')
+            host = host.strip('[]')
+            if host == '*':
+                host = '::' if ftype == 'IPv6' else '0.0.0.0'
+            try:
+                res.append((pid, comm, uid, host, int(port)))
+            except ValueError:
+                pass
+    return res
+
+
+def _mac_netstat_ports():
+    """[(ip, port)] cua moi port LISTEN, ke ca port cua nguoi dung khac (khong biet tien trinh)."""
+    res = []
+    for line in _run_cmd(['netstat', '-an', '-p', 'tcp']).splitlines():
+        p = line.split()
+        if len(p) < 6 or p[-1] != 'LISTEN' or not p[0].startswith('tcp'):
+            continue
+        host, _, port = p[3].rpartition('.')
+        if host == '*':
+            host = '0.0.0.0' if p[0] == 'tcp4' else '::'
+        try:
+            res.append((host, int(port)))
+        except ValueError:
+            pass
+    return res
+
+
+def _mac_ps(pids, field):
+    info = {}
+    if pids:
+        out = _run_cmd(['ps', '-ww', '-o', 'pid=,%s=' % field, '-p', ','.join(str(p) for p in sorted(pids))])
+        for line in out.splitlines():
+            pid, _, val = line.strip().partition(' ')
+            if pid.isdigit():
+                info[int(pid)] = val.strip()
+    return info
+
+
+def mac_cwd(pid):
+    for line in _run_cmd(['lsof', '-a', '-p', str(pid), '-d', 'cwd', '-Fn']).splitlines():
+        if line.startswith('n'):
+            return line[1:]
+    return None
+
+
+def _get_port_rows_mac():
+    is_root = os.geteuid() == 0
+    groups, seen = {}, set()
+    for pid, comm, uid, ip, port in _mac_listening():
+        # nhieu tien trinh cung ung dung chung mot port -> gop lai, lay PID nho nhat
+        g = groups.setdefault((port, comm, uid), {'port': port, 'comm': comm, 'uid': uid,
+                                                   'pids': set(), 'addrs': set()})
+        g['pids'].add(pid)
+        g['addrs'].add(ip)
+        seen.add(port)
+    for ip, port in _mac_netstat_ports():
+        if port not in seen:
+            g = groups.setdefault((port, '', None), {'port': port, 'comm': '', 'uid': None,
+                                                     'pids': set(), 'addrs': set()})
+            g['addrs'].add(ip)
+
+    all_pids = set(p for g in groups.values() for p in g['pids'])
+    exes = _mac_ps(all_pids, 'comm')
+    cmds = _mac_ps(all_pids, 'command')
+
+    rows = []
+    for g in groups.values():
+        port, uid = g['port'], g['uid']
+        pid = min(g['pids']) if g['pids'] else None
+        exe = exes.get(pid, '') if pid is not None else ''
+        if not exe.startswith('/'):
+            exe = ''
+        cmd = cmds.get(pid, '') if pid is not None else ''
+        comm = g['comm'] or (os.path.basename(exe) if exe else '')
+        if comm:
+            app = comm
+        elif pid is None and not is_root:
+            app = '(cần sudo để xem)'
+        else:
+            app = '(không rõ)'
+        if len(g['pids']) > 1:
+            app += ' +%d' % (len(g['pids']) - 1)
+
+        addrs = sorted(g['addrs'])
+        is_container = comm in CONTAINER_PROCS or comm.startswith('com.docker')
+        is_system = not is_container and (uid is None or uid < 500 or exe.startswith(MAC_SYSTEM_DIRS))
+
+        if g['comm'] in MAC_KNOWN_APPS:
+            desc = MAC_KNOWN_APPS[g['comm']]
+        elif port in KNOWN_PORTS:
+            desc = KNOWN_PORTS[port]
+        elif is_container:
+            desc = 'Port của container'
+        elif is_system:
+            desc = 'Dịch vụ hệ thống'
+        else:
+            desc = ''
+
+        rows.append({
+            'port': port, 'app': app, 'desc': desc, 'scope': _scope(addrs), 'pid': pid,
+            'user': user_name(uid) if uid is not None else '?', 'cmd': cmd, 'exe': exe,
+            'addrs': addrs, 'system': is_system,
         })
     rows.sort(key=lambda r: (r['port'], r['pid'] or 0))
     return rows
@@ -265,7 +420,72 @@ def _meminfo():
     return info
 
 
+def _get_machine_info_mac():
+    info = [('Tên máy', socket.gethostname())]
+    user = user_name(os.geteuid())
+    sudo_user = os.environ.get('SUDO_USER')
+    if os.geteuid() == 0 and sudo_user and sudo_user != 'root':
+        user = 'root (sudo từ %s)' % sudo_user
+    info.append(('Người dùng', user))
+
+    name = _run_cmd(['sw_vers', '-productName']).strip() or 'macOS'
+    ver = _run_cmd(['sw_vers', '-productVersion']).strip()
+    info.append(('Hệ điều hành', '%s %s (Darwin %s)' % (name, ver, platform.release())))
+
+    ips, iface = [], ''
+    for line in _run_cmd(['ifconfig']).splitlines():
+        if line and not line[0].isspace():
+            iface = line.split(':', 1)[0]
+        else:
+            p = line.split()
+            if len(p) >= 2 and p[0] == 'inet' and iface != 'lo0' and not p[1].startswith(('127.', '169.254.')):
+                ips.append('%s (%s)' % (p[1], iface))
+    info.append(('IP', ', '.join(ips) if ips else '(không có mạng)'))
+
+    cpu = _run_cmd(['sysctl', '-n', 'machdep.cpu.brand_string']).strip()
+    info.append(('CPU', '%s - %d luồng' % (cpu or platform.machine(), os.cpu_count() or 1)))
+
+    try:
+        total = int(_run_cmd(['sysctl', '-n', 'hw.memsize']).strip())
+    except ValueError:
+        total = 0
+    if total:
+        vm, page = {}, 4096
+        for line in _run_cmd(['vm_stat']).splitlines():
+            if 'page size of' in line:
+                try:
+                    page = int(line.split('page size of')[1].split()[0])
+                except (IndexError, ValueError):
+                    pass
+            k, _, v = line.partition(':')
+            try:
+                vm[k.strip()] = int(v.strip().rstrip('.'))
+            except ValueError:
+                pass
+        used = (vm.get('Pages active', 0) + vm.get('Pages wired down', 0)
+                + vm.get('Pages occupied by compressor', 0)) * page
+        gb = 1024.0 ** 3
+        info.append(('RAM', '%.1f / %.1f GB (%d%%)' % (used / gb, total / gb, round(used * 100.0 / total))))
+
+    boot = _run_cmd(['sysctl', '-n', 'kern.boottime'])
+    try:
+        secs = int(time.time()) - int(boot.split('sec =')[1].split(',')[0])
+    except (IndexError, ValueError):
+        secs = None
+    if secs is not None:
+        d, h, m = secs // 86400, secs % 86400 // 3600, secs % 3600 // 60
+        if d:
+            info.append(('Đã bật', '%d ngày %d giờ' % (d, h)))
+        elif h:
+            info.append(('Đã bật', '%d giờ %d phút' % (h, m)))
+        else:
+            info.append(('Đã bật', '%d phút' % m))
+    return info
+
+
 def get_machine_info():
+    if IS_MAC:
+        return _get_machine_info_mac()
     info = [('Tên máy', socket.gethostname())]
 
     user = user_name(os.geteuid())
@@ -417,7 +637,7 @@ def fit(s, width):
 
 def copy_to_clipboard(text):
     """Thu wl-copy / xclip / xsel; neu khong co thi gui ma OSC 52 de terminal tu chep."""
-    cmds = []
+    cmds = [['pbcopy']] if IS_MAC else []
     if os.environ.get('WAYLAND_DISPLAY'):
         cmds.append(['wl-copy'])
     if os.environ.get('DISPLAY'):
@@ -619,7 +839,9 @@ class DetailDialog(Dialog):
         ]
         if pid is not None:
             try:
-                out.append('Thư mục:      %s' % os.readlink('/proc/%d/cwd' % pid))
+                cwd = mac_cwd(pid) if IS_MAC else os.readlink('/proc/%d/cwd' % pid)
+                if cwd:
+                    out.append('Thư mục:      %s' % cwd)
             except OSError:
                 pass
         cmd = r['cmd'] or '-'
@@ -1072,7 +1294,7 @@ class App(object):
         keys = '↑↓ chọn  / tìm  Enter chi tiết  k dừng  r làm mới  a tự làm mới  h port hệ thống'
         if not self.is_root:
             keys += '  u sudo'
-            if not is_installed():
+            if not IS_MAC and not is_installed():
                 keys += '  m thêm vào menu'
         keys += '  q thoát'
         _put(scr, h - 1, 0, fit(keys, w - 1), curses.A_DIM)
@@ -1149,7 +1371,7 @@ class App(object):
         elif key in ('u', 'U') and not self.is_root:
             self.relaunch_sudo = True
             self.quit = True
-        elif key in ('m', 'M') and not self.is_root:
+        elif key in ('m', 'M') and not self.is_root and not IS_MAC:
             try:
                 msg = install()
             except (OSError, RuntimeError) as e:
@@ -1389,8 +1611,12 @@ def main():
     ap.add_argument('--terminal', action='store_true', help=argparse.SUPPRESS)   # dang chay trong cua so tu mo
     args = ap.parse_args()
 
-    if not sys.platform.startswith('linux') or not os.path.exists('/proc/net/tcp'):
-        sys.exit('Port Dashboard bản này chỉ chạy trên Linux (cần /proc). Trên Windows hãy dùng windows/PortDashboard.bat.')
+    if not IS_MAC and (not sys.platform.startswith('linux') or not os.path.exists('/proc/net/tcp')):
+        sys.exit('Port Dashboard bản này chỉ chạy trên Linux và macOS. Trên Windows hãy dùng windows/PortDashboard.bat.')
+
+    if IS_MAC and (args.install or args.uninstall):
+        sys.exit('--install / --uninstall chưa hỗ trợ trên macOS. Hãy mở Terminal và chạy: python3 %s'
+                 % os.path.abspath(__file__))
 
     if args.install or args.uninstall:
         try:
