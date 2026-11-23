@@ -4,6 +4,11 @@
 
 Hữu ích khi gặp lỗi kiểu "port 8080 is already in use" mà không biết cái gì đang chiếm.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/macos-dark.png">
+  <img alt="Port Dashboard trên macOS: danh sách port đang mở, ứng dụng đang chiếm, port dùng để làm gì và ai truy cập được" src="docs/images/macos-light.png">
+</picture>
+
 Có ba phiên bản:
 
 | | Windows | macOS | Linux |

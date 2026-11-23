@@ -441,7 +441,11 @@ final class PortStore: ObservableObject {
         guard !loading else { return }
         loading = true
         Task.detached(priority: .userInitiated) {
+            #if SCREENSHOT
+            let r = DemoData.rows()
+            #else
             let r = PortScanner.scan()
+            #endif
             await MainActor.run {
                 self.rows = r
                 self.lastUpdated = Date()
@@ -682,6 +686,9 @@ struct ContentView: View {
         .onAppear {
             store.refresh()
             store.schedule(enabled: autoRefresh, seconds: refreshSeconds)
+            #if SCREENSHOT
+            Screenshot.run(select: { selection = $0 }, window: { window })
+            #endif
         }
         .onChange(of: autoRefresh) { store.schedule(enabled: autoRefresh, seconds: refreshSeconds) }
         .onChange(of: refreshSeconds) { store.schedule(enabled: autoRefresh, seconds: refreshSeconds) }
@@ -932,6 +939,71 @@ struct SettingsView: View {
     }
 }
 
+#if SCREENSHOT
+let minWindowHeight: CGFloat = 200
+#else
+let minWindowHeight: CGFloat = 360
+#endif
+
+#if SCREENSHOT
+// MARK: - Chup anh cho README (chi co khi build bang ./screenshot.sh, khong co trong app phat hanh)
+
+enum DemoData {
+    static func rows() -> [PortRow] {
+        let cc = "/System/Library/CoreServices/ControlCenter.app"
+        var ccName = FileManager.default.displayName(atPath: cc)
+        if ccName.hasSuffix(".app") { ccName = String(ccName.dropLast(4)) }
+        func row(_ port: Int, _ app: String, _ process: String, _ desc: String, public isPublic: Bool,
+                 _ pid: Int, _ exe: String, bundle: String = "", _ cmd: String, system: Bool = false) -> PortRow {
+            PortRow(port: port, app: app, process: process, desc: desc,
+                    scope: isPublic ? "Máy khác truy cập được" : "Chỉ máy này", isPublic: isPublic,
+                    pid: pid, user: "dev", uid: 501, exe: exe, bundlePath: bundle, cmd: cmd,
+                    addrs: isPublic ? ["0.0.0.0", "::"] : ["127.0.0.1"], system: system)
+        }
+        return [
+            row(3000, "node", "node", knownPorts[3000]!, public: false, 48120,
+                "/opt/homebrew/bin/node", "node /Users/dev/shop/node_modules/.bin/next dev"),
+            row(3306, "mysqld", "mysqld", knownPorts[3306]!, public: false, 812,
+                "/opt/homebrew/opt/mysql/bin/mysqld", "/opt/homebrew/opt/mysql/bin/mysqld --datadir=/opt/homebrew/var/mysql"),
+            row(5000, ccName, "ControlCenter", knownProcesses["ControlCenter"]!, public: true, 835,
+                cc + "/Contents/MacOS/ControlCenter", bundle: cc, cc + "/Contents/MacOS/ControlCenter"),
+            row(5173, "node", "node", knownPorts[5173]!, public: false, 48213,
+                "/opt/homebrew/bin/node", "node /Users/dev/blog/node_modules/.bin/vite"),
+            row(5432, "postgres", "postgres", knownPorts[5432]!, public: false, 790,
+                "/opt/homebrew/opt/postgresql@16/bin/postgres", "/opt/homebrew/opt/postgresql@16/bin/postgres -D /opt/homebrew/var/postgresql@16"),
+            row(6379, "redis-server", "redis-server", knownPorts[6379]!, public: false, 801,
+                "/opt/homebrew/opt/redis/bin/redis-server", "/opt/homebrew/opt/redis/bin/redis-server 127.0.0.1:6379"),
+            row(7000, ccName, "ControlCenter", knownProcesses["ControlCenter"]!, public: true, 835,
+                cc + "/Contents/MacOS/ControlCenter", bundle: cc, cc + "/Contents/MacOS/ControlCenter"),
+            row(8080, "java", "java", knownPorts[8080]!, public: true, 51877,
+                "/opt/homebrew/opt/openjdk@21/bin/java", "java -jar build/libs/api-0.0.1-SNAPSHOT.jar"),
+            row(27017, "Docker", "com.docker.backend", knownProcesses["com.docker.backend"]!, public: true, 1342,
+                "/Applications/Docker.app/Contents/MacOS/com.docker.backend", bundle: "/Applications/Docker.app",
+                "/Applications/Docker.app/Contents/MacOS/com.docker.backend"),
+        ]
+    }
+}
+
+/// Bien moi truong: SCREENSHOT_OUT=<file.png> (bat buoc), SCREENSHOT_DARK=1 (giao dien toi).
+enum Screenshot {
+    static func run(select: @escaping (String) -> Void, window: @escaping () -> NSWindow?) {
+        let env = ProcessInfo.processInfo.environment
+        NSApp.appearance = NSAppearance(named: env["SCREENSHOT_DARK"] == "1" ? .darkAqua : .aqua)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            window()?.setContentSize(NSSize(width: 1300, height: 342))
+            select("5173-48213")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            guard let out = env["SCREENSHOT_OUT"], let v = window()?.contentView?.superview,
+                  let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { exit(1) }
+            v.cacheDisplay(in: v.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out))
+            exit(0)
+        }
+    }
+}
+#endif
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
@@ -957,7 +1029,7 @@ struct PortDashboardApp: App {
         Window("Port Dashboard", id: "main") {
             ContentView()
                 .environmentObject(store)
-                .frame(minWidth: 780, minHeight: 360)
+                .frame(minWidth: 780, minHeight: minWindowHeight)
         }
         .defaultSize(width: 1180, height: 620)
         .commands {
