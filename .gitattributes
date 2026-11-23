@@ -3,3 +3,4 @@
 *.sh text eol=lf
 # File .bat giu nguyen xuong dong kieu Windows (CRLF), khong de git doi
 *.bat -text
+*.swift text eol=lf
