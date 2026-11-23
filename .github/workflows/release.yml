@@ -1,9 +1,10 @@
 # Day mot tag dang v1.2.3 len GitHub -> tu dong dong goi va dang Release:
 #   portwatch-windows.zip  (PortDashboard.bat + PortDashboard.ps1 + LICENSE)
-#   portwatch.py           (ban Linux, mot file)
+#   portwatch-macos.zip    (Port Dashboard.app, build tren may macOS cua GitHub)
+#   portwatch.py           (ban Linux, mot file; cung chay tren macOS)
 #
-#   git tag v1.0.0
-#   git push origin v1.0.0
+#   git tag v1.2.0
+#   git push origin v1.2.0
 name: Release
 
 on:
@@ -14,13 +15,43 @@ permissions:
   contents: write
 
 jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Port Dashboard.app
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: macos/build.sh
+
+      - name: Kiểm tra app chạy được
+        run: '"macos/build/Port Dashboard.app/Contents/MacOS/PortDashboard" --list'
+
+      - name: Đóng gói
+        run: |
+          mkdir -p dist
+          ditto -c -k --keepParent "macos/build/Port Dashboard.app" dist/portwatch-macos.zip
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portwatch-macos
+          path: dist/portwatch-macos.zip
+
   release:
+    needs: macos
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Kiểm tra bản Linux chạy được
         run: python3 linux/portwatch.py --list
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: portwatch-macos
+          path: dist
 
       - name: Đóng gói
         run: |
@@ -35,5 +66,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            dist/portwatch-windows.zip dist/portwatch.py \
+            dist/portwatch-windows.zip dist/portwatch-macos.zip dist/portwatch.py \
             --title "$GITHUB_REF_NAME" --generate-notes

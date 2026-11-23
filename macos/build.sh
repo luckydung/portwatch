@@ -18,6 +18,9 @@ done
 lipo -create build/PortDashboard-arm64 build/PortDashboard-x86_64 -output "$APP/Contents/MacOS/PortDashboard"
 rm build/PortDashboard-arm64 build/PortDashboard-x86_64
 cp Info.plist "$APP/Contents/Info.plist"
+if [ -n "${VERSION:-}" ]; then   # vd VERSION=v1.2.0 (CI truyen ten tag) -> 1.2.0
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION#v}" "$APP/Contents/Info.plist"
+fi
 
 echo "Đang vẽ icon..."
 swift make_icon.swift build/AppIcon.iconset

@@ -21,7 +21,7 @@ Không cần git, chỉ cần tải file của hệ điều hành bạn dùng:
 | Hệ điều hành | File tải về | Cách mở |
 |---|---|---|
 | Windows | [**portwatch-windows.zip**](https://github.com/luckydung/portwatch/releases/latest/download/portwatch-windows.zip) | Giải nén, double-click `PortDashboard.bat` |
-| macOS | Chưa có file tải sẵn | [Build từ mã nguồn](#macos) bằng một lệnh, rồi double-click `Port Dashboard.app` |
+| macOS | [**portwatch-macos.zip**](https://github.com/luckydung/portwatch/releases/latest/download/portwatch-macos.zip) | Giải nén, kéo `Port Dashboard.app` vào **Applications**; lần đầu cần [cho phép mở](#lần-đầu-mở-ứng-dụng) |
 | Linux | [**portwatch.py**](https://github.com/luckydung/portwatch/releases/latest/download/portwatch.py) | `python3 portwatch.py`; chạy `--install` một lần để [mở bằng click](#mở-bằng-click) |
 
 Link luôn trỏ tới phiên bản mới nhất. Các phiên bản cũ và ghi chú thay đổi nằm ở trang [Releases](https://github.com/luckydung/portwatch/releases).
@@ -79,7 +79,27 @@ Bản macOS là một ứng dụng thật: double-click là mở, không cần T
 
 ### Cài đặt
 
-Hiện chưa có file tải sẵn, nên cần build từ mã nguồn một lần. Máy cần có Xcode hoặc Command Line Tools (nếu chưa có, chạy `xcode-select --install`).
+1. Tải [**portwatch-macos.zip**](https://github.com/luckydung/portwatch/releases/latest/download/portwatch-macos.zip) (chạy được trên cả Mac Apple Silicon và Intel).
+2. Double-click file zip để giải nén, rồi kéo **Port Dashboard.app** vào thư mục **Applications**.
+3. Mở bằng Launchpad, Spotlight (`⌘ Space`, gõ "Port") hoặc kéo vào Dock.
+
+#### Lần đầu mở ứng dụng
+
+Ứng dụng miễn phí và chưa được ký bằng tài khoản Apple Developer trả phí, nên lần đầu mở macOS sẽ báo *"Apple không thể xác minh Port Dashboard..."*. Chỉ cần cho phép **một lần**:
+
+1. Bấm **Xong** để đóng thông báo.
+2. Mở **Cài đặt hệ thống → Quyền riêng tư & Bảo mật**, kéo xuống mục **Bảo mật**, bấm **Vẫn mở** cạnh dòng nhắc tới Port Dashboard.
+3. Xác nhận **Vẫn mở** và nhập mật khẩu máy nếu được hỏi.
+
+Từ lần sau ứng dụng mở bình thường. Nếu quen dùng Terminal, có thể thay các bước trên bằng một lệnh:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Port Dashboard.app"
+```
+
+#### Hoặc build từ mã nguồn
+
+Máy cần có Xcode hoặc Command Line Tools (nếu chưa có, chạy `xcode-select --install`). Build trên máy mình thì không bị macOS hỏi như trên.
 
 ```bash
 git clone https://github.com/luckydung/portwatch.git
@@ -89,7 +109,7 @@ git clone https://github.com/luckydung/portwatch.git
 portwatch/macos/build.sh --install
 ```
 
-Lệnh này biên dịch ứng dụng (chạy được trên cả Apple Silicon và Intel), vẽ icon và chép **Port Dashboard** vào thư mục **Applications**. Sau đó mở bằng Launchpad, Spotlight (`⌘ Space`, gõ "Port") hoặc kéo vào Dock. Bỏ `--install` nếu chỉ muốn build ra `macos/build/Port Dashboard.app` mà không chép đi đâu.
+Lệnh này biên dịch ứng dụng, vẽ icon và chép **Port Dashboard** vào **Applications**. Bỏ `--install` nếu chỉ muốn build ra `macos/build/Port Dashboard.app` mà không chép đi đâu.
 
 ### Sử dụng
 
